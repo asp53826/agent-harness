@@ -1,0 +1,47 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos exercises seatbelt, ubuntu exercises bubblewrap. between them
+        # both OS sandbox backends actually get run.
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install bubblewrap
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - run: pip install -r requirements-dev.txt
+      - name: report what the sandbox can actually enforce
+        run: python -c "from agentkit.sandbox import Sandbox; print(Sandbox().capabilities())"
+      - run: pytest -q
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - run: pip install -r requirements-dev.txt
+      - run: python -m evals.runner --json results/ci.json
+      # the scripted agent solves every task. if that stops being true the
+      # runtime broke, not the model.
+      - name: every task must still pass
+        run: |
+          python - <<'PY'
+          import json
+          s = json.load(open("results/ci.json"))["summary"]
+          assert s["success_rate"] == 1.0, s
+          print("success rate:", s["success_rate"])
+          PY
