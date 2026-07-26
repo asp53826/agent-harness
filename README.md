@@ -9,7 +9,7 @@ whether the agent actually did the task. This is those two parts.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                      # 82 tests, 25 of them escape attempts
+pytest                      # 57 tests, 25 of them escape attempts
 python -m evals.runner      # the benchmark, no API key needed
 python -m evals.runner --model gpt-4o-mini   # against a real model
 ```
@@ -222,5 +222,5 @@ agentkit/agent.py     the loop and its bounds, scripted + OpenAI models
 evals/suite.py        12 tasks with programmatic checkers
 evals/scripts.py      deterministic model behaviour, two of them imperfect
 evals/runner.py       success rate, failure modes, tool efficiency
-tests/                82 tests (25 sandbox escapes, 57 runtime)
+tests/                57 tests (25 sandbox escapes, 32 runtime)
 ```
