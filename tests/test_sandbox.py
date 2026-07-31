@@ -12,9 +12,11 @@ is worse than a skip.
 
 import os
 import platform
+import socket
 
 import pytest
 
+import agentkit.sandbox as sandbox_module
 from agentkit.sandbox import ExecResult, Sandbox, SandboxLimits
 
 HAS_OS_SANDBOX = Sandbox().capabilities()["os_sandbox"]
@@ -73,6 +75,35 @@ def test_capabilities_are_reported_honestly():
     assert caps["network_blocked"] == caps["os_sandbox"]
 
 
+def test_bubblewrap_retains_an_outer_empty_network_namespace(monkeypatch):
+    """Do not let bubblewrap configure loopback on restricted Linux hosts."""
+    monkeypatch.setattr(sandbox_module, "_find_unshare", lambda: "/usr/bin/unshare")
+    monkeypatch.setattr(sandbox_module, "_find_bwrap", lambda: "/usr/bin/bwrap")
+    sb = box()
+    sb._caps["mechanism"] = "bubblewrap"
+
+    command = sb._wrap_command(["/runtime/bin/python", "script.py"], "/work")
+
+    assert command[:16] == [
+        "/usr/bin/bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
+        "--cap-add", "CAP_SYS_ADMIN", "--bind", "/", "/", "--",
+        "/usr/bin/unshare", "--net", "--", "/usr/bin/bwrap",
+    ]
+    assert "--unshare-all" not in command
+    assert "--share-net" not in command
+    assert "--unshare-net" not in command
+    assert all(flag in command for flag in (
+        "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try"
+    ))
+    prefixes = {
+        os.path.dirname(os.path.dirname(os.path.abspath(sb.python))),
+        os.path.dirname(os.path.dirname(os.path.realpath(sb.python))),
+    }
+    triplets = [command[i:i + 3] for i in range(len(command) - 2)]
+    for prefix in prefixes:
+        assert ["--ro-bind-try", prefix, prefix] in triplets
+
+
 # ------------------------------------------------------------- escape attempts
 
 @needs_os_sandbox
@@ -100,15 +131,21 @@ def test_dns_is_blocked():
 
 
 @needs_os_sandbox
-def test_listening_sockets_are_blocked():
-    r = box().run_code("""
-        import socket
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        s.listen(1)
-        print("LISTENING")
-    """)
-    assert "LISTENING" not in r.stdout
+def test_host_loopback_is_blocked():
+    """A private loopback socket must not reach services on the host."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        r = box().run_code(f"""
+            import socket
+            s = socket.socket()
+            s.settimeout(2)
+            s.connect(("127.0.0.1", {port}))
+            print("CONNECTED")
+        """)
+    assert "CONNECTED" not in r.stdout, "sandbox reached a host loopback service"
+    assert not r.ok
 
 
 @needs_os_sandbox

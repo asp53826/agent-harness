@@ -1,5 +1,11 @@
 # agent-harness
 
+[![ci](https://github.com/asp53826/agent-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/asp53826/agent-harness/actions/workflows/ci.yml)
+![Python 3.11 + 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.13-3776AB?logo=python&logoColor=white)
+![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-00A86B)
+![Tests](https://img.shields.io/badge/tests-58-7A3E9D)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2F80ED.svg)](LICENSE)
+
 An LLM agent runtime with a real sandbox and a graded benchmark. The sandbox is
 tested by attacking it; the benchmark runs unattended with no API key.
 
@@ -8,8 +14,8 @@ running model-written code without handing over the machine, and knowing
 whether the agent actually did the task. This is those two parts.
 
 ```bash
-pip install -r requirements-dev.txt
-pytest                      # 57 tests, 25 of them escape attempts
+python -m pip install -e '.[dev]'
+python -m pytest -q         # 58 sandbox and runtime tests
 python -m evals.runner      # the benchmark, no API key needed
 python -m evals.runner --model gpt-4o-mini   # against a real model
 ```
@@ -208,10 +214,14 @@ side-effecting ones.
   answers. No open-ended writing, no multi-file refactors.
 - **Not implemented:** multi-agent orchestration, planning-strategy comparison
   (ReAct vs plan-and-execute), persistent memory across runs, streaming.
-- **The Linux bubblewrap path is written but untested** — this was built on
-  macOS, where seatbelt is what actually runs. It's wired the same way and CI
-  exercises it, but I haven't personally watched a bubblewrap escape attempt
-  fail, and I'd rather say so than imply otherwise.
+- **Linux and macOS use different isolation backends.** The CI matrix runs the
+  same live containment tests against bubblewrap on Ubuntu and seatbelt on
+  macOS, across Python 3.11 and 3.13. On Linux, bubblewrap establishes the user
+  namespace, an empty network namespace is created inside it, and a final
+  bubblewrap layer applies the filesystem policy. Restricted hosts never need
+  to configure a loopback interface. Capability detection probes that complete
+  launch path; if host policy blocks user namespaces, the runtime reports
+  `rlimits-only` instead of claiming isolation it cannot enforce.
 
 ## Layout
 
@@ -222,5 +232,5 @@ agentkit/agent.py     the loop and its bounds, scripted + OpenAI models
 evals/suite.py        12 tasks with programmatic checkers
 evals/scripts.py      deterministic model behaviour, two of them imperfect
 evals/runner.py       success rate, failure modes, tool efficiency
-tests/                57 tests (25 sandbox escapes, 32 runtime)
+tests/                58 tests (26 sandbox/containment, 32 runtime)
 ```
