@@ -120,6 +120,10 @@ def _find_bwrap() -> str | None:
     return shutil.which("bwrap")
 
 
+def _find_unshare() -> str | None:
+    return shutil.which("unshare")
+
+
 class Sandbox:
     def __init__(self, limits: SandboxLimits | None = None, strict: bool = False,
                  python: str | None = None):
@@ -138,7 +142,14 @@ class Sandbox:
     def _detect(self) -> dict:
         system = platform.system()
         seatbelt = system == "Darwin" and os.path.exists("/usr/bin/sandbox-exec")
-        bwrap = system == "Linux" and _find_bwrap() is not None
+        # bubblewrap configures loopback whenever it creates the network
+        # namespace. Some otherwise-capable hosts (including GitHub Actions)
+        # deny that netlink operation. util-linux unshare can create the empty
+        # namespace without configuring an interface, then bubblewrap can keep
+        # that namespace while applying the filesystem sandbox.
+        bwrap = (system == "Linux"
+                 and _find_bwrap() is not None
+                 and _find_unshare() is not None)
         return {
             "platform": system,
             "rlimits": True,
@@ -206,13 +217,39 @@ class Sandbox:
             )
             return ["/usr/bin/sandbox-exec", "-p", profile, *argv]
         if mech == "bubblewrap" and not self.limits.allow_network:
+            # A virtualenv launcher and its resolved base interpreter can live
+            # under different prefixes. Both must be readable: the former owns
+            # site-packages, while the latter owns the actual executable and
+            # standard library.
+            python_prefixes = dict.fromkeys([
+                os.path.dirname(os.path.dirname(os.path.abspath(self.python))),
+                os.path.dirname(os.path.dirname(os.path.realpath(self.python))),
+            ])
+            python_binds = [
+                item
+                for prefix in python_prefixes
+                for item in ("--ro-bind-try", prefix, prefix)
+            ]
             return [
+                _find_unshare(),
+                "--user",
+                "--map-root-user",
+                "--net",
+                "--",
                 _find_bwrap(),
-                "--unshare-all",          # new net/pid/ipc/uts namespaces
+                "--unshare-all",
+                # Retain the outer, unconfigured network namespace. This keeps
+                # networking unavailable without asking bubblewrap to add a
+                # loopback address, which restricted hosts may prohibit.
+                "--share-net",
                 "--ro-bind", "/usr", "/usr",
                 "--ro-bind-try", "/lib", "/lib",
                 "--ro-bind-try", "/lib64", "/lib64",
                 "--ro-bind-try", "/bin", "/bin",
+                # setup-python and virtualenvs can install outside /usr. Bind
+                # only their runtime prefixes read-only so sys.executable,
+                # site-packages and the standard library remain available.
+                *python_binds,
                 "--proc", "/proc",
                 "--dev", "/dev",
                 "--bind", workdir, workdir,
