@@ -144,9 +144,9 @@ class Sandbox:
         seatbelt = system == "Darwin" and os.path.exists("/usr/bin/sandbox-exec")
         # bubblewrap configures loopback whenever it creates the network
         # namespace. Some otherwise-capable hosts (including GitHub Actions)
-        # deny that netlink operation. util-linux unshare can create the empty
-        # namespace without configuring an interface, then bubblewrap can keep
-        # that namespace while applying the filesystem sandbox.
+        # deny that netlink operation. A bubblewrap-created user namespace lets
+        # util-linux unshare create an empty network namespace without changing
+        # uid_map, then a final bubblewrap keeps it for the filesystem sandbox.
         bwrap = (system == "Linux"
                  and _find_bwrap() is not None
                  and _find_unshare() is not None)
@@ -231,17 +231,28 @@ class Sandbox:
                 for item in ("--ro-bind-try", prefix, prefix)
             ]
             return [
+                # Ubuntu can restrict which executables may create user
+                # namespaces. bubblewrap is explicitly permitted on hosted
+                # runners, so use it to establish the capability boundary for
+                # the network-only unshare that follows.
+                _find_bwrap(),
+                "--unshare-user",
+                "--uid", "0",
+                "--gid", "0",
+                "--cap-add", "CAP_SYS_ADMIN",
+                "--bind", "/", "/",
+                "--",
                 _find_unshare(),
-                "--user",
-                "--map-root-user",
                 "--net",
                 "--",
                 _find_bwrap(),
-                "--unshare-all",
-                # Retain the outer, unconfigured network namespace. This keeps
-                # networking unavailable without asking bubblewrap to add a
-                # loopback address, which restricted hosts may prohibit.
-                "--share-net",
+                # Reuse the outer user namespace and the unconfigured network
+                # namespace. A second user mapping would be rejected by the
+                # same restricted hosts this path is designed to support.
+                "--unshare-ipc",
+                "--unshare-pid",
+                "--unshare-uts",
+                "--unshare-cgroup-try",
                 "--ro-bind", "/usr", "/usr",
                 "--ro-bind-try", "/lib", "/lib",
                 "--ro-bind-try", "/lib64", "/lib64",

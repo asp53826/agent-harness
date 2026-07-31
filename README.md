@@ -216,9 +216,10 @@ side-effecting ones.
   (ReAct vs plan-and-execute), persistent memory across runs, streaming.
 - **Linux and macOS use different isolation backends.** The CI matrix runs the
   same live containment tests against bubblewrap on Ubuntu and seatbelt on
-  macOS, across Python 3.11 and 3.13. Linux creates an empty network namespace
-  before bubblewrap applies the filesystem sandbox, so restricted hosts do not
-  need permission to configure a loopback interface.
+  macOS, across Python 3.11 and 3.13. On Linux, bubblewrap establishes the user
+  namespace, an empty network namespace is created inside it, and a final
+  bubblewrap layer applies the filesystem policy. Restricted hosts never need
+  to configure a loopback interface.
 
 ## Layout
 

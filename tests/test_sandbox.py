@@ -84,13 +84,17 @@ def test_bubblewrap_retains_an_outer_empty_network_namespace(monkeypatch):
 
     command = sb._wrap_command(["/runtime/bin/python", "script.py"], "/work")
 
-    assert command[:6] == [
-        "/usr/bin/unshare", "--user", "--map-root-user", "--net", "--",
-        "/usr/bin/bwrap",
+    assert command[:16] == [
+        "/usr/bin/bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
+        "--cap-add", "CAP_SYS_ADMIN", "--bind", "/", "/", "--",
+        "/usr/bin/unshare", "--net", "--", "/usr/bin/bwrap",
     ]
-    assert "--unshare-all" in command
-    assert "--share-net" in command
+    assert "--unshare-all" not in command
+    assert "--share-net" not in command
     assert "--unshare-net" not in command
+    assert all(flag in command for flag in (
+        "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try"
+    ))
     prefixes = {
         os.path.dirname(os.path.dirname(os.path.abspath(sb.python))),
         os.path.dirname(os.path.dirname(os.path.realpath(sb.python))),
