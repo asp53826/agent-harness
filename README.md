@@ -219,7 +219,9 @@ side-effecting ones.
   macOS, across Python 3.11 and 3.13. On Linux, bubblewrap establishes the user
   namespace, an empty network namespace is created inside it, and a final
   bubblewrap layer applies the filesystem policy. Restricted hosts never need
-  to configure a loopback interface.
+  to configure a loopback interface. Capability detection probes that complete
+  launch path; if host policy blocks user namespaces, the runtime reports
+  `rlimits-only` instead of claiming isolation it cannot enforce.
 
 ## Layout
 

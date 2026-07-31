@@ -24,6 +24,7 @@ code with less isolation than the caller asked for.
 
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import resource
@@ -124,6 +125,46 @@ def _find_unshare() -> str | None:
     return shutil.which("unshare")
 
 
+@functools.lru_cache(maxsize=None)
+def _linux_sandbox_works(bwrap: str, unshare: str) -> bool:
+    """Probe the complete namespace boundary, not just binary presence."""
+    command = [
+        bwrap,
+        "--unshare-user",
+        "--uid", "0",
+        "--gid", "0",
+        "--cap-add", "CAP_SYS_ADMIN",
+        "--bind", "/", "/",
+        "--",
+        unshare,
+        "--net",
+        "--",
+        bwrap,
+        "--unshare-ipc",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        "--ro-bind", "/usr", "/usr",
+        "--ro-bind-try", "/lib", "/lib",
+        "--ro-bind-try", "/lib64", "/lib64",
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--die-with-parent",
+        "/usr/bin/true",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 class Sandbox:
     def __init__(self, limits: SandboxLimits | None = None, strict: bool = False,
                  python: str | None = None):
@@ -147,9 +188,13 @@ class Sandbox:
         # deny that netlink operation. A bubblewrap-created user namespace lets
         # util-linux unshare create an empty network namespace without changing
         # uid_map, then a final bubblewrap keeps it for the filesystem sandbox.
-        bwrap = (system == "Linux"
-                 and _find_bwrap() is not None
-                 and _find_unshare() is not None)
+        bwrap_path = _find_bwrap() if system == "Linux" else None
+        unshare_path = _find_unshare() if system == "Linux" else None
+        bwrap = bool(
+            bwrap_path
+            and unshare_path
+            and _linux_sandbox_works(bwrap_path, unshare_path)
+        )
         return {
             "platform": system,
             "rlimits": True,

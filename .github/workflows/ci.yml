@@ -19,7 +19,12 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: install bubblewrap
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: python -m pip install -e '.[dev]'
       - name: report what the sandbox can actually enforce
         run: python -c "from agentkit.sandbox import Sandbox; print(Sandbox().capabilities())"
@@ -32,7 +37,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: python -m pip install -e '.[dev]'
       - run: python -m evals.runner --json results/ci.json
       # the scripted agent solves every task. if that stops being true the
